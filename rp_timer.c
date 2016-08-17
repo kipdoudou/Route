@@ -190,6 +190,8 @@ void rp_sop_gen(void *data)
 //每收到5次定时器信号调用一次，即周期为5s
 void rp_rt_check(void *data)
 {
+	if(rt.is_static)
+		return;
 	//int id = *(int *)data;
 	//EPT(stderr, "Caught the SIGALRM signal for %s\n", rp_tsch.procs[id].name);
 	int i;
@@ -210,6 +212,8 @@ void rp_rt_check(void *data)
 //每收到5次定时器信号调用一次，即周期为5s
 void rp_lk_check(void *data)
 {
+	if(rt.is_static)
+		return;
 	//int id = *(int *)data;
 	//EPT(stderr, "Caught the SIGALRM signal for %s\n", rp_tsch.procs[id].name);
 	int i, j, nn, change;

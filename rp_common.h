@@ -39,6 +39,7 @@ typedef struct _ritem_t {
 /* since MADR = 0 mean invalid addess, so the node index should be (MADR-1) */
 typedef struct _rtable_t {
 	MADR	self;
+	char	is_static;
 	ritem_t	item[MAX_NODE_CNT];
 } rtable_t;
 
@@ -133,6 +134,7 @@ int  rlink_fsm(MADR, int);
 void rlink_clear(rlink_t*);
 
 int  rp_rpm_proc(MADR, int, void*);
+int rp_mn_proc(int, void*);
 void*rp_qrv_thread(void*);
 
 int  rp_tmsg_2nl(int, mmsg_t*);
