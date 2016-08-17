@@ -123,6 +123,7 @@ typedef enum _MR_MSG_TYPE {
 	MMSG_IP_DATA,								/* ip packet */
 	MMSG_IPC_DATA,								/* ip packet with header compression */	
 	MMSG_RPM,									/* unicast routing protocol message */
+	MMSG_RP_FT_DATA,							/* set forarding table from routingp */
 	MMSG_MRPM,									/* multicate routing protocol message */
 	MMSG_HM_DATA,								/* data packet received from highmac*/
 	MMSG_FT_REP,								/* inquired forwarding table data from low mac */
