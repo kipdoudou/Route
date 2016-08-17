@@ -102,7 +102,9 @@ void rp_fhrsop_proc(MADR node, int len, U8 *data)
 		EPT(stderr, "node[%d]: the sop message len is wrong, items=%d\n", *sa, items);
 	}
     //对比路由表，更新转发表，如果转发表有变化，则通知底层
-    update_fwt();
+ 
+	//delete it by wanghao on 6.28 to decrease the rate of sending fwt
+	//update_fwt();
 }
 
 

@@ -215,15 +215,6 @@ void* rp_qrv_thread(void *arg)
 				rval = rp_rpm_proc(rx_msg.node, rcnt - sizeof(MADR), &rx_msg.data);
 				if (rval != 0) {
 					/* report error */
-					EPT(stderr, "rp process MMSG_URP_DATA error\n");
-				}
-				break;
-			
-			case MMSG_MN_RP:	//从mnconf收到的控制指令
-				rval = rp_mn_proc(&rx_msg.data ,rcnt - sizeof(MADR));
-				if (rval != 0) {
-					/* report error */
-					EPT(stderr, "rp process MMSG_MN_RP error\n");
 				}
 				break;
 
@@ -247,8 +238,6 @@ thread_return:
 //这里的len是消息队列data部分长度，第三个参数是data部分起始地址
 int rp_rpm_proc(MADR node, int len, void *data)
 {
-	if(rt.is_static)
-		return 0;
 	mmhd_t *pmhd;
 	int pos = 0;
 
@@ -274,17 +263,6 @@ int rp_rpm_proc(MADR node, int len, void *data)
 
 	return 0;
 }
-
-//收到控制指令，按照指令不同执行不同功能函数
-int rp_mn_proc(int len, void *data)
-{
-	
-	
-	
-	return 1;
-	
-}
-
 //路由路径清零，状态置为IS_NULL
 void rpath_clear(rpath_t *prp)
 {
@@ -297,7 +275,7 @@ void rpath_clear(rpath_t *prp)
 //分别再收到sop包和计时器周期性检查路由时调用
 void update_fwt()
 {
-    int change = 0;
+/*    int change = 0;
     int i;
     for(i=0;i<MAX_NODE_CNT;i++)
     {
@@ -314,10 +292,28 @@ void update_fwt()
             change =1;
         }
     }
+*/
+	/*node:1*/
+	fwt_send[0] = 0;
+	fwt_send[1] = 2;
+	fwt_send[2] = 2;
+	
+	/*node:2
+	fwt_send[0] = 1;
+	fwt_send[1] = 0;
+	fwt_send[2] = 3;
+	*/
+	
+	/*node:3
+	fwt_send[0] = 2;
+	fwt_send[1] = 2;
+	fwt_send[2] = 0;
+	*/
+	
     //printf("check fwt!!!,length of pft is %zu，lengthof fwt_send is %zu\n",sizeof(pft->ft),sizeof(fwt_send));
 
-    if(1 == change)
-    {
+//    if(1 == change)
+//    {
         mmsg_t msg_fwt;
         //消息队列类型为转发表数据
         msg_fwt.mtype = MMSG_RP_FT_DATA;
@@ -327,7 +323,7 @@ void update_fwt()
         //rp_tmsg_2nl(sizeof(pft->ft) + sizeof(MADR), &msg_fwt);
         memcpy(msg_fwt.data,fwt_send,sizeof(char)*MAX_NODE_CNT);
         rp_tmsg_2nl(sizeof(char)*MAX_NODE_CNT + sizeof(MADR), &msg_fwt);
-    }
+ //   }
 }
 
 void ritem_clear(int addr, ritem_t *pri)
@@ -359,7 +355,6 @@ int rp_init(int myaddr)
 	int i;
 
 	rt.self = myaddr;
-	rt.is_static = 0;
 	for(i = 0; i < MAX_NODE_CNT; i++)
 	{
 		ritem_clear(MR_IN2AD(i), &rt.item[i]);
@@ -691,14 +686,6 @@ void nt_show()
 		EPT(stderr, "node[%d]: link to node %d, status=%d, cnt=%d\n", *sa, MR_IN2AD(i), nt.fl[i].lstatus, nt.fl[i].rcnt);
 	}
 
-}
-
-void rpath_set(char * data)
-{
-	MADR node;
-	rpath_t *rp;
-	
-	//EPT(stderr, "node[%d]: route to %d, s=%d, h=%d, n=%d\n", *sa, dest, rp->status, rp->hop, rp->node[0]);
 }
 
 void rlink_clear(rlink_t *lk)
@@ -1063,15 +1050,4 @@ void signal_show(int signal)
     return;
 }
 
-void set_static()
-{
-	rt.is_static = 1;
-	EPT(stderr, "set rtable_t static\n");
-}
-
-void cancel_static()
-{
-	rt.is_static = 0;
-	EPT(stderr, "cancle rtable_t static\n");
-}
 

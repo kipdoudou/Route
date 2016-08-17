@@ -131,89 +131,18 @@ void rp_timer_sche(int signo)
 //每收到1次定时器信号调用一次，即周期为1s
 void rp_sop_gen(void *data)
 {
-    //int id = *(int *)data;
-    //EPT(stderr, "Caught the SIGALRM signal for %s\n", rp_tsch.procs[id].name);
-	int rval, i;
-	int len = 0;
-    //消息队列=mtyp + node + (mmhd)pkg_headd + sop_head + true_data
-	mmsg_t tmsg;
-	mmhd_t *phd = (mmhd_t *)tmsg.data;
-	sop_hd *psh = (sop_hd *)(tmsg.data + MMHD_LEN);
-	//sop_head = node + icnt即地址加数量
-	U8 *items = &psh->icnt;
-    //路由协议消息类型
-	tmsg.mtype = MMSG_RPM;
-#ifdef _MR_TEST
-    //本节点号的地址
-	tmsg.node = *sa;
-#else
-	tmsg.node = MADR_BRDCAST;
-#endif
-	/*rp message header */
-	phd->type = RPM_FHR_SOP;
-	phd->len = MMHD_LEN + sizeof(sop_hd);
-	//加上phd的长度
-	len += MMHD_LEN;
-	/* sop header */
-	psh->node = *sa;
-	*items = 0;
-	//加上psh的长度
-	len += sizeof(sop_hd);
-//	EPT(stderr, "psh->icnt=%d\n", psh->icnt);
-	for(i = 0; i < MAX_NODE_CNT; i++)
-	{
-	    //这是类似哈系表的形式，下标和表项的目的地址映射对应
-		ASSERT(MR_IN2AD(i) == rt.item[i].dest);
-		//到本节点的表项跳过
-		if (MR_IN2AD(i) == *sa)
-			continue;
-		rval = 0;
-		//将目的地址，跳数，每跳节点一次填入tmsg.data + len开始的地址，返回填充长度，最后参数验证是否越界
-		rval = ritem_sopget(&rt.item[i], tmsg.data + len, MAX_DATA_LENGTH - len);
-		if (rval == -1)
-			EPT(stderr, "error occurs in ritem_sogget()\n");
-		else
-		{
-			if (rval > 0)
-			{
-				*items += 1;
-				len += rval;
-			}
-		}
-	}
-//	EPT(stderr, "psh->icnt=%d\n", psh->icnt);
-    //即代表从psh到消息末尾的长度，注意，len是消息队列的data总长度！
-	phd->len = len - MMHD_LEN;
-	//通过消息队列发出tmsg，第一个参数是发送长度
-	rp_tmsg_2nl(len + sizeof(MADR), &tmsg);//msg_snd
+  
 }
 //每收到5次定时器信号调用一次，即周期为5s
 void rp_rt_check(void *data)
 {
-	if(rt.is_static)
-		return;
-	//int id = *(int *)data;
-	//EPT(stderr, "Caught the SIGALRM signal for %s\n", rp_tsch.procs[id].name);
-	int i;
-	int comp, sn;
 
-	//rt_show();
-	for(i = 0; i < MAX_NODE_CNT; i++) {
-		ASSERT(MR_IN2AD(i) == rt.item[i].dest);
-        //ritem_fsm(&rt.item[i], 1);
-		if (IS_NULL == rt.item[i].pfst.status)
-			continue;
-
-		ritem_fsm(&rt.item[i], 1);
-	}
 	//检查和更新转发表
 	update_fwt();
 }
 //每收到5次定时器信号调用一次，即周期为5s
 void rp_lk_check(void *data)
 {
-	if(rt.is_static)
-		return;
 	//int id = *(int *)data;
 	//EPT(stderr, "Caught the SIGALRM signal for %s\n", rp_tsch.procs[id].name);
 	int i, j, nn, change;
