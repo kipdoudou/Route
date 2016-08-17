@@ -39,6 +39,7 @@ typedef struct _ritem_t {
 /* since MADR = 0 mean invalid addess, so the node index should be (MADR-1) */
 typedef struct _rtable_t {
 	MADR	self;
+	char	is_static;
 	ritem_t	item[MAX_NODE_CNT];
 } rtable_t;
 
@@ -73,24 +74,14 @@ typedef struct _ntable_t {
 	rlink_t rl[MAX_NODE_CNT];	/* input link */
 } ntable_t;
 
-typedef struct _uni_link_t{
-	U8 flag;
-	int ctime;
-	MADR src;
-	MADR dst;
-	U8 status;
-}uni_link_t;
 
 
 /* routing protocol message type is defined here */
 #define RPM_ERROR			0
 /* FHR */
 #define RPM_FHR_SOP 		1
-#define RPM_FHR_UIP			2
-#define RPM_FHR_UIBP		3
-#define RPM_FHR_ULACK		4
-#define RPM_FHR_RII			5
-#define RPM_FHR_RIR			6
+#define RPM_FHR_RII			2
+#define RPM_FHR_RIR			3
 /* other protocols */
 
 /* end of defining rp message*/
@@ -142,10 +133,8 @@ void rlink_dec(MADR);
 int  rlink_fsm(MADR, int);
 void rlink_clear(rlink_t*);
 
-void updata_fl(MADR dst, U8 status);
-
-
 int  rp_rpm_proc(MADR, int, void*);
+int rp_mn_proc(int, void*);
 void*rp_qrv_thread(void*);
 
 int  rp_tmsg_2nl(int, mmsg_t*);

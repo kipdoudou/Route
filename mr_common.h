@@ -66,7 +66,6 @@
 /* netlayer constants  */
 #define MAX_NODE_CNT		32			/* maximum number of network nodes */
 #define MAX_HOPS			10			/* maximum hops */
-#define MAX_UNILINK_NUM     10
 #define MADR_UNI_MIN		1
 #define MADR_UNI_MAX		MAX_NODE_CNT
 #define MADR_INVALID		0

@@ -24,8 +24,6 @@ rtable_t	rt;
 ntable_t	nt;
 MADR		*sa = &rt.self;
 
-uni_link_t uni_link[MAX_UNILINK_NUM];
-
 static int		ft_sid = -1;
 
 static fwt_t *pft = NULL;
@@ -217,6 +215,15 @@ void* rp_qrv_thread(void *arg)
 				rval = rp_rpm_proc(rx_msg.node, rcnt - sizeof(MADR), &rx_msg.data);
 				if (rval != 0) {
 					/* report error */
+					EPT(stderr, "rp process MMSG_URP_DATA error\n");
+				}
+				break;
+			
+			case MMSG_MN_RP:	//从mnconf收到的控制指令
+				rval = rp_mn_proc(&rx_msg.data ,rcnt - sizeof(MADR));
+				if (rval != 0) {
+					/* report error */
+					EPT(stderr, "rp process MMSG_MN_RP error\n");
 				}
 				break;
 
@@ -240,6 +247,8 @@ thread_return:
 //这里的len是消息队列data部分长度，第三个参数是data部分起始地址
 int rp_rpm_proc(MADR node, int len, void *data)
 {
+	if(rt.is_static)
+		return 0;
 	mmhd_t *pmhd;
 	int pos = 0;
 
@@ -256,15 +265,6 @@ int rp_rpm_proc(MADR node, int len, void *data)
             //以上三种类型都会调用下面函数，因为没有break
 			rp_fhrmsg_disp(node, pmhd->type, pmhd->len, data + pos);
 			break;
-		case RPM_FHR_UIP:
-			rp_fhruip_proc(node, pmhd->len, data + pos);
-			break;
-		case RPM_FHR_UIBP:
-			rp_fhruibp_proc(node, pmhd->len, data + pos);
-			break;
-		case RPM_FHR_ULACK:
-			rp_fhrulack_proc(node, pmhd->len, data + pos);
-			break;
 
 		default:
 			/* report errors */
@@ -274,6 +274,17 @@ int rp_rpm_proc(MADR node, int len, void *data)
 
 	return 0;
 }
+
+//收到控制指令，按照指令不同执行不同功能函数
+int rp_mn_proc(int len, void *data)
+{
+	
+	
+	
+	return 1;
+	
+}
+
 //路由路径清零，状态置为IS_NULL
 void rpath_clear(rpath_t *prp)
 {
@@ -348,6 +359,7 @@ int rp_init(int myaddr)
 	int i;
 
 	rt.self = myaddr;
+	rt.is_static = 0;
 	for(i = 0; i < MAX_NODE_CNT; i++)
 	{
 		ritem_clear(MR_IN2AD(i), &rt.item[i]);
@@ -677,16 +689,16 @@ void nt_show()
 			continue;
 
 		EPT(stderr, "node[%d]: link to node %d, status=%d, cnt=%d\n", *sa, MR_IN2AD(i), nt.fl[i].lstatus, nt.fl[i].rcnt);
-		
-	}
-	for (i = 0; i < MAX_NODE_CNT; i++) {
-		if (nt.rl[i].lstatus == LQ_NULL)
-			continue;
-
-		EPT(stderr, "node[%d]: link from node %d, status=%d, cnt=%d\n", *sa, MR_IN2AD(i), nt.rl[i].lstatus, nt.rl[i].rcnt);
-		
 	}
 
+}
+
+void rpath_set(char * data)
+{
+	MADR node;
+	rpath_t *rp;
+	
+	//EPT(stderr, "node[%d]: route to %d, s=%d, h=%d, n=%d\n", *sa, dest, rp->status, rp->hop, rp->node[0]);
 }
 
 void rlink_clear(rlink_t *lk)
@@ -698,29 +710,24 @@ void rlink_clear(rlink_t *lk)
 
 void rlink_inc(MADR nb)
 {
-	nt.rl[MR_AD2IN(nb)].rcnt++;//邻居表入链路收到的包数+1
+	nt.fl[MR_AD2IN(nb)].rcnt++;//邻居表出链路收到的包数+1
 }
 
 void rlink_dec(MADR nb)
 {
-	nt.rl[MR_AD2IN(nb)].rcnt--;
-}
-
-void updata_fl(MADR dst, U8 status)
-{
-	nt.fl[MR_AD2IN(dst)].lstatus = status;
+	nt.fl[MR_AD2IN(nb)].rcnt--;
 }
 
 /*
  up=0, message drive, remain rcnt
  up=1, timer drive, clear rcnt
  */
-//根据收到的包数进行入链路状态的更新
+//根据收到的包数进行链路状态的更新
 int rlink_fsm(MADR nb, int up)
 {
 	int change = 0;
 	//ni是邻居表nt中到nb节点的出链路
-	rlink_t *ni = &nt.rl[MR_AD2IN(nb)];
+	rlink_t *ni = &nt.fl[MR_AD2IN(nb)];
 	//链路当前状态记为旧状态lold，待更新
 	lstat_t lold =  ni->lstatus;
 
@@ -821,11 +828,6 @@ int rlink_fsm(MADR nb, int up)
 		ni->rcnt = 0;
 	return change;
 }
-
-
-
-
-
 //检查并比较更新一条路由表
 void ritem_fsm(ritem_t *ri, int up)
 {
@@ -1061,212 +1063,15 @@ void signal_show(int signal)
     return;
 }
 
-//单向链路单播报文(有到dst的路由) 组包function
-int rp_uip_gen(int id)
+void set_static()
 {
-	ASSERT(uni_link[id].flag == 2);
-	
-	int len = 0;
-	
-	mmsg_t tmsg;
-	mmhd_t *phd = (mmhd_t *)tmsg.data;
-	
-	tmsg.mtype = MMSG_RPM;
-	tmsg.node = src;
-	
-	phd->type = RPM_FHR_UIP;
-
-	len += MMHD_LEN;
-	
-	MADR *buf_tmp;
-	buf_tmp = tmsg.data + len;
-	
-	*buf_tmp = uni_link[id].src;
-	buf_tmp ++;
-	
-	*buf_tmp = uni_link[id].dst;
-	buf_tmp ++;
-	
-	*buf_tmp = (MADR)(uni_link[id].status);
-	buf_tmp ++;
-	
-	*buf_tmp = 1;
-	buf_tmp ++;
-	
-	*buf_tmp = *sa;
-	
-	len += 5; //1 hop, only node[0]
-	phd->len = len;
-	
-	uni_link[id].ctime = time(NULL);
-	
-	rp_tmsg_2nl(len + sizeof(MADR), &tmsg);
-	
-	uni_link[id].flag = 1;
-}
-//单向链路广播报文 组包function
-int rp_uibp_gen(int *id, int flag)
-{
-	int i;
-	int len = 0;
-	
-	mmsg_t tmsg;
-	mmhd_t *phd = (mmhd_t *)tmsg.data;
-	uibp_hd *ubphd = (uibp_hd *)(tmsg.data + MMHD_LEN);
-	
-	U8 *item = &psh->icnt;
-	
-	tmsg.mtype = MMSG_RPM;
-	tmsg.node = MADR_BRDCAST;
-	
-	phd->type = RPM_FHR_UIBP;
-
-	len += MMHD_LEN + sizeof(uibp_hd);
-	
-	MADR *buf_tmp;
-	buf_tmp = tmsg.data + len;
-		
-	for(i = 0; i < MAX_UNILINK_NUM; i++)
-	{
-		if( (flag == 0) && (i > 0))
-			return 1;
-		
-		int id_tmp = *(id[i]);
-		
-		if(id_tmp == 0)
-			break;
-		
-		ASSERT(uni_link[id_tmp].flag == 1);
-		
-		*buf_tmp = uni_link[id_tmp].src;
-		buf_tmp ++;
-		
-		*buf_tmp = uni_link[id_tmp].dst;
-		buf_tmp ++;
-		
-		*buf_tmp = (MADR)(uni_link[id_tmp].status);
-		buf_tmp ++;
-		
-		*buf_tmp = 1;
-		buf_tmp ++;
-		
-		*buf_tmp = *sa;
-		
-		len += 5; //1 hop, only node[0]
-		phd->len = len;
-		
-		uni_link[id_tmp].ctime = time(NULL);
-		
-		rp_tmsg_2nl(len + sizeof(MADR), &tmsg);
-		
-	}
+	rt.is_static = 1;
+	EPT(stderr, "set rtable_t static\n");
 }
 
-//单向链路确认报文 组包function
-int rp_ul_ack_gen(U8 *data)
+void cancel_static()
 {
-	int msg_len = 0;
-	int hop = 0;
-	ul_record *ul = (ul_record *)data;
-	
-	mmsg_t tmsg;
-	mmhd_t *phd = (mmhd_t *)tmsg.data;
-	
-	tmsg.mtype = MMSG_RPM;
-	//下游节点号
-	tmsg.node = *ul->dst;
-	
-	phd->type = RPM_FHR_ULACK;
-
-	msg_len += MMHD_LEN;
-	
-	MADR *buf_tmp;
-	buf_tmp = tmsg.data + msg_len;
-
-	hop = *ul->node_cnt;
-
-	phd->len = 2*(sizeof(MADR)) + 2 + hop;
-	
-	memcpy(buf_tmp, ul, phd->len);
-	
-	msg_len += phd->len;
-	
-	rp_tmsg_2nl(msg_len + sizeof(MADR), &tmsg);
+	rt.is_static = 0;
+	EPT(stderr, "cancle rtable_t static\n");
 }
 
-void inform_uni_link(MADR src, U8 status)
-{
-	int id = 0;
-	int sn = 0;
-	id = find_useful_uni_link(src, *sa, 
-			status ? status : nt.rl[MR_AD2IN(src)].lstatus, &sn);
-	
-	if(id == -1)
-	{
-		EPT(stderr,"!!! UNI_LINK is FULL\n");
-		return;
-	}
-	if(uni_link[id].flag == 0)
-	{
-		uni_link[id].flag = 3;
-		uni_link[id].src = src;
-		uni_link[id].dst = *sa;
-		uni_link[id].ctime = time(NULL);
-		uni_link[id].status = status?status:nt.rl[MR_AD2IN(src)].lstatus;
-	}
-	if(sn == 0)
-	{
-		EPT(stderr, "Doesn't need to sent the uni_link:[%d]->[%d]\n", src, *sa);
-		return;
-	}
-	else if(sn == 1)
-	{
-		if(WH_RP_VALD(rt.item[id].pfst.status))
-			rp_uip_gen(id);
-		else
-			rp_uibp_gen(&id, 0);
-	}	
-}
-
-
-int find_useful_uni_link(MADR src, MADR dst, U8 status, int *sn)
-{
-	int i;
-
-	//check if the uni link is existed already
-	for(i = 0; i < MAX_UNILINK_NUM; i++)
-	{
-		if((uni_link[i].flag >= 1)&&(uni_link[i].src == src)&&(uni_link[i].dst == dst))
-		{
-			*sn = need_send2other(i, status);
-			return i;
-		}	
-	}
-	//no -> find an empty space
-	for(i = 0; i < MAX_UNILINK_NUM; i++)
-	{
-		if(uni_link[i].flag == 0)
-			return i;
-	}
-	return -1;
-}
-
-int need_send2other(int id, U8 status)
-{
-	if(uni_link[id].flag == 1)
-	{
-		ctime = time(NULL);
-		if((ctime - uni_link[id].ctime) > 6)
-		{
-			uni_link[id].flag = 3;
-			uni_link[id].ctime = ctime;
-			return 1;
-		}
-		else
-			return 0;
-	}
-	else if(uni_link[id].flag == 2)
-		return 0;
-	else
-		EPT(stderr,"!!! uni_link[%d].flag = %d\n",id, uni_link[id].flag);
-}

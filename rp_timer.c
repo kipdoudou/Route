@@ -139,10 +139,8 @@ void rp_sop_gen(void *data)
 	mmsg_t tmsg;
 	mmhd_t *phd = (mmhd_t *)tmsg.data;
 	sop_hd *psh = (sop_hd *)(tmsg.data + MMHD_LEN);
-	//sop_head = node + icnt_l + icnt_r 即地址加two数量
-	U8 *item_l = &psh->icnt_l;
-	U8 *item_r = &psh->icnt_r;
-	
+	//sop_head = node + icnt即地址加数量
+	U8 *items = &psh->icnt;
     //路由协议消息类型
 	tmsg.mtype = MMSG_RPM;
 #ifdef _MR_TEST
@@ -158,30 +156,10 @@ void rp_sop_gen(void *data)
 	len += MMHD_LEN;
 	/* sop header */
 	psh->node = *sa;
-	*item_l = 0;
-	*item_r = 0;
+	*items = 0;
 	//加上psh的长度
 	len += sizeof(sop_hd);
 //	EPT(stderr, "psh->icnt=%d\n", psh->icnt);
-	
-	MADR *buf_tmp;
-	buf_tmp = tmsg.data + len;
-	for(i = 0; i < MAX_NODE_CNT; i++)
-	{
-		if (MR_IN2AD(i) == *sa)
-			continue;
-		if(nt.rl[i].lstatus >= LQ_UNSTABLE)
-		{
-			*buf_tmp = MR_IN2AD(i);
-			buf_tmp ++;
-			
-			*buf_tmp = (U8)(nt.rl[i].lstatus);
-			buf_tmp ++;
-			
-			len += (sizeof(MADR) + 1);
-			*item_l += 1;
-		}
-	}
 	for(i = 0; i < MAX_NODE_CNT; i++)
 	{
 	    //这是类似哈系表的形式，下标和表项的目的地址映射对应
@@ -198,7 +176,7 @@ void rp_sop_gen(void *data)
 		{
 			if (rval > 0)
 			{
-				*item_r += 1;
+				*items += 1;
 				len += rval;
 			}
 		}
@@ -212,6 +190,8 @@ void rp_sop_gen(void *data)
 //每收到5次定时器信号调用一次，即周期为5s
 void rp_rt_check(void *data)
 {
+	if(rt.is_static)
+		return;
 	//int id = *(int *)data;
 	//EPT(stderr, "Caught the SIGALRM signal for %s\n", rp_tsch.procs[id].name);
 	int i;
@@ -232,6 +212,8 @@ void rp_rt_check(void *data)
 //每收到5次定时器信号调用一次，即周期为5s
 void rp_lk_check(void *data)
 {
+	if(rt.is_static)
+		return;
 	//int id = *(int *)data;
 	//EPT(stderr, "Caught the SIGALRM signal for %s\n", rp_tsch.procs[id].name);
 	int i, j, nn, change;
