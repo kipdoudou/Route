@@ -25,7 +25,7 @@ int rp_qid = -1;
 int mt_qid = -1;
 
 #ifdef _MR_TEST
-void* mr_queues_init(void *arg)//获得route进程的队列id和test进程的队列id
+void mr_queues_init(void *arg)//获得route进程的队列id和test进程的队列id
 {
 	int i,j;
 	int qid, rval, stop;
@@ -44,7 +44,9 @@ void* mr_queues_init(void *arg)//获得route进程的队列id和test进程的队列id
 		}
 		else if (NULL != strstr(qinfs[i].pname, PNAME_MR_TEST))
 		{
+			//re_qin = i;
 			qinfs[i].key_q = ftok(PATH_CREATE_KEY, qinfs[i].sub);
+												//sub:SN_MRTEST 100
 		}
 	}
 

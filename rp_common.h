@@ -42,6 +42,21 @@ typedef struct _rtable_t {
 	ritem_t	item[MAX_NODE_CNT];
 } rtable_t;
 
+/*uibp message header*/
+typedef struct _uibp_hd{
+	MADR node;
+	U8 icnt;
+}uibp_hd;
+
+/*ul record struct*/
+typedef struct _ul_record{
+	MADR src;
+	MADR dst;
+	U8 status;
+	U8 node_cnt;
+	U8 node[MAX_HOPS];
+}ul_record;
+
 /* link state maintainence */
 #define LM_NUL2NUL			0
 #define LM_NUL2UNS			1
@@ -79,6 +94,7 @@ typedef struct _uni_link_t{
 	MADR src;
 	MADR dst;
 	U8 status;
+	U8 timer_ttl;
 }uni_link_t;
 
 
@@ -142,7 +158,7 @@ void rlink_dec(MADR);
 int  rlink_fsm(MADR, int);
 void rlink_clear(rlink_t*);
 
-void updata_fl(MADR dst, U8 status);
+void update_fl(MADR dst, U8 status);
 
 
 int  rp_rpm_proc(MADR, int, void*);
@@ -154,4 +170,8 @@ void update_fwt();
 
 void signal_show(int signal);
 
+int find_useful_uni_link(MADR src, MADR dst, U8 status, int *sn);
+int need_send2other(int id, U8 status);
+void confirm_ul(U8 src, U8 status);
+void clear_uni_link(int id);
 #endif

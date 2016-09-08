@@ -1,5 +1,4 @@
-#CC = arm-linux-gcc-4.4.3
-CC=gcc
+CC = arm-linux-gcc-4.4.3
 OBJECTS = rp_main.o mr_common.o rp_timer.o rp_fhr.o
 
 routingp: $(OBJECTS)

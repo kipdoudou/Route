@@ -217,12 +217,13 @@ void* rp_qrv_thread(void *arg)
 				rval = rp_rpm_proc(rx_msg.node, rcnt - sizeof(MADR), &rx_msg.data);
 				if (rval != 0) {
 					/* report error */
+					EPT(stderr, "! rp_rpm_proc process error\n");
 				}
 				break;
 
 			default:
 				/* report error */
-				EPT(stderr, "%s: the node of rx_msg  = %d", qinfs[re_qin].pname, rx_msg.node);
+				EPT(stderr, "! %s: the mtype of rx_msg  = %ld\n", qinfs[re_qin].pname, rx_msg.mtype);
 				break;
 		}
 	}
@@ -253,7 +254,6 @@ int rp_rpm_proc(MADR node, int len, void *data)
 		case RPM_FHR_SOP:
 		case RPM_FHR_RII:
 		case RPM_FHR_RIR:
-            //以上三种类型都会调用下面函数，因为没有break
 			rp_fhrmsg_disp(node, pmhd->type, pmhd->len, data + pos);
 			break;
 		case RPM_FHR_UIP:
@@ -401,7 +401,10 @@ void ritem_nup(MADR src, U8* pn, int hop)
 		if (0 == sn)
 			rpath_up(ri->dest, &path, &ri->psnd, &sn);
 	}
-#if 0
+	
+	//changed by wanghao on 7.11
+#if 1
+	EPT(stderr, "");
 	rpath_show(ri->dest, &ri->pfst);
 	rpath_show(ri->dest, &ri->psnd);
 #endif
@@ -706,7 +709,7 @@ void rlink_dec(MADR nb)
 	nt.rl[MR_AD2IN(nb)].rcnt--;
 }
 
-void updata_fl(MADR dst, U8 status)
+void update_fl(MADR dst, U8 status)
 {
 	nt.fl[MR_AD2IN(dst)].lstatus = status;
 }
@@ -813,7 +816,7 @@ int rlink_fsm(MADR nb, int up)
 		else
 		{
 			ni->lold = lold;
-			EPT(stderr, "node[%d]: link to neighbour %d changed org=%d, now=%d , cnt=%d\n", *sa, nb, lold, ni->lstatus, ni->rcnt);
+			EPT(stderr, "node[%d]: link [%d]->[%d] changed org=%d, now=%d , cnt=%d\n", *sa, nb, *sa, lold, ni->lstatus, ni->rcnt);
 		}
 	}
 	//如果是定时器发起的更新，则收到包数清零（每隔6s）
@@ -837,6 +840,22 @@ void ritem_fsm(ritem_t *ri, int up)
        // update_fwt(ri);
 	rpath_fsm(&ri->psnd, up);
 	rpath_fsm(&ri->pfst, up);
+	
+	rpath_t *rp;
+	rp = &ri->pfst;
+	//7.11
+	if(up == 1)
+		EPT(stderr,"  timer drive: rpfst to %d - flag(%d),status(%d)\n", ri->dest, rp->flag, rp->status);
+	else	
+		EPT(stderr,"  package drive: rpfst to %d - flag(%d),status(%d)\n", ri->dest, rp->flag, rp->status);
+	
+	rp = &ri->psnd;
+	//7.11
+	if(up == 1)
+		EPT(stderr,"    timer drive: rpsnd to %d - flag(%d),status(%d)\n", ri->dest, rp->flag, rp->status);
+	else	
+		EPT(stderr,"    package drive: rpsnd to %d - flag(%d),status(%d)\n", ri->dest, rp->flag, rp->status);
+	
     //若次级路径活跃或者不稳定,则比较优先链路和次级链路，决定是否替换
 	if (WH_RP_VALD(ri->psnd.status))
 	{
@@ -1049,6 +1068,8 @@ int rpath_fsm(rpath_t *rp, int up)
 	//如果up为1，说明是timer发起的更新，则将flag置0，表示新的check阶段没有收到sop包
 	if (1 == up)
 		rp->flag = 0;
+	
+
 
 	return change;
 }
@@ -1061,10 +1082,141 @@ void signal_show(int signal)
     return;
 }
 
-//单向链路单播报文(有到dst的路由) 组包function
-int rp_uip_gen(int id)
+void print_uip(int msg_len, mmsg_t * tmsg)
 {
-	ASSERT(uni_link[id].flag == 2);
+	mmhd_t *phd = (mmhd_t *)tmsg->data;
+	int len = 0;
+	int node_cnt;
+	int i;
+	EPT(stderr,"SEND uip\n");
+	EPT(stderr,"LEN:%d\n", msg_len);
+	EPT(stderr," mtype:%ld\n", tmsg->mtype);
+	EPT(stderr," node:%d\n", tmsg->node);
+	EPT(stderr," phd->type:%d\n", phd->type);
+	EPT(stderr," phd->len:%d\n", phd->len);
+	
+	len += MMHD_LEN;
+	
+	MADR *buf_tmp;
+	buf_tmp = tmsg->data + len;
+	
+	EPT(stderr," data:%d(src) ", *buf_tmp);
+	
+	buf_tmp ++;
+	
+	EPT(stderr,"%d(dst) ", *buf_tmp);
+	buf_tmp ++;
+	
+	EPT(stderr,"%d(status) ", *buf_tmp);
+	buf_tmp ++;
+	
+	EPT(stderr,"%d(node_cnt) ", *buf_tmp);
+	node_cnt = *buf_tmp;
+	buf_tmp ++;
+	
+	for(i = 0; 
+		i < msg_len - sizeof(MADR) - len - 4;
+		i++)
+	{
+		EPT(stderr,"%d ", *buf_tmp);
+		buf_tmp++;
+	}
+	EPT(stderr,"\n");
+}
+
+void print_uibp(int msg_len, mmsg_t * tmsg)
+{
+	mmhd_t *phd = (mmhd_t *)tmsg->data;
+	uibp_hd *ubphd = (uibp_hd *)(tmsg->data + MMHD_LEN);
+	int len = 0;
+	int node_cnt;
+	int i;
+	EPT(stderr,"SEND uibp\n");
+	EPT(stderr,"LEN:%d\n", msg_len);
+	EPT(stderr," mtype:%ld\n", tmsg->mtype);
+	EPT(stderr," node:%d\n", tmsg->node);
+	EPT(stderr," phd->type:%d\n", phd->type);
+	EPT(stderr," phd->len:%d\n", phd->len);
+	EPT(stderr," ubphd->node:%d\n", ubphd->node);
+	EPT(stderr," ubphd->icnt:%d\n", ubphd->icnt);
+	
+	
+	len += MMHD_LEN + sizeof(uibp_hd);
+	
+	MADR *buf_tmp;
+	buf_tmp = tmsg->data + len;
+	
+	EPT(stderr," data:%d(src) ", *buf_tmp);
+	
+	buf_tmp ++;
+	
+	EPT(stderr,"%d(dst) ", *buf_tmp);
+	buf_tmp ++;
+	
+	EPT(stderr,"%d(status) ", *buf_tmp);
+	buf_tmp ++;
+	
+	EPT(stderr,"%d(node_cnt) ", *buf_tmp);
+	node_cnt = *buf_tmp;
+	buf_tmp ++;
+	
+	for(i = 0; 
+		i < msg_len - sizeof(MADR) - len - 4;
+		i++)
+	{
+		EPT(stderr,"%d ", *buf_tmp);
+		buf_tmp++;
+	}
+	EPT(stderr,"\n");
+}
+
+void print_ulack(int msg_len, mmsg_t * tmsg)
+{
+	mmhd_t *phd = (mmhd_t *)tmsg->data;
+	int len = 0;
+	int node_cnt;
+	int i;
+	EPT(stderr,"SEND ulack\n");
+	EPT(stderr,"LEN:%d\n", msg_len);
+	EPT(stderr," mtype:%ld\n", tmsg->mtype);
+	EPT(stderr," node:%d\n", tmsg->node);
+	EPT(stderr," phd->type:%d\n", phd->type);
+	EPT(stderr," phd->len:%d\n", phd->len);
+	
+	len += MMHD_LEN;
+	
+	MADR *buf_tmp;
+	buf_tmp = tmsg->data + len;
+	
+	EPT(stderr," data:%d(src) ", *buf_tmp);
+	
+	buf_tmp ++;
+	
+	EPT(stderr,"%d(dst) ", *buf_tmp);
+	buf_tmp ++;
+	
+	EPT(stderr,"%d(status) ", *buf_tmp);
+	buf_tmp ++;
+	
+	EPT(stderr,"%d(node_cnt) ", *buf_tmp);
+	node_cnt = *buf_tmp;
+	buf_tmp ++;
+	
+	for(i = 0; i < node_cnt; i++)
+	{
+		EPT(stderr,"%d ", *buf_tmp);
+		buf_tmp++;
+	}
+	
+
+	
+	EPT(stderr,"\n");
+}
+
+//单向链路单播报文(有到dst的路由) 组包function
+int rp_uip_gen(int id, int node_cnt, int item_len, U8* node)
+{
+//	ASSERT(uni_link[id].flag == 3);
 	
 	int len = 0;
 	
@@ -1072,7 +1224,12 @@ int rp_uip_gen(int id)
 	mmhd_t *phd = (mmhd_t *)tmsg.data;
 	
 	tmsg.mtype = MMSG_RPM;
-	tmsg.node = src;
+#ifdef _MR_TEST
+    //本节点号的地址
+	tmsg.node = *sa;
+#else
+	tmsg.node = uni_link[id].src;
+#endif
 	
 	phd->type = RPM_FHR_UIP;
 
@@ -1090,22 +1247,72 @@ int rp_uip_gen(int id)
 	*buf_tmp = (MADR)(uni_link[id].status);
 	buf_tmp ++;
 	
-	*buf_tmp = 1;
+	*buf_tmp = node_cnt + 1;
 	buf_tmp ++;
 	
-	*buf_tmp = *sa;
+	memcpy(buf_tmp, node, node_cnt);
+	*(buf_tmp + node_cnt) = *sa;
 	
-	len += 5; //1 hop, only node[0]
-	phd->len = len;
+	phd->len = 4 + node_cnt + 1;
+
+	if(item_len == 0)
+	{
+		U8* item_r;
+		int i, len_temp = 0;
+		
+		item_r = buf_tmp + node_cnt + 1;
+		*item_r = 0;
+		
+		buf_tmp = buf_tmp + node_cnt + 2;
+		//把下游节点的路由表也发给上游节点，告诉上游节点通过本节点（下游节点）还可以到哪些节点
+		for(i = 0; i < MAX_NODE_CNT; i++)
+		{
+			//这是类似哈系表的形式，下标和表项的目的地址映射对应
+			ASSERT(MR_IN2AD(i) == rt.item[i].dest);
+			//到本节点的表项跳过
+			if (MR_IN2AD(i) == *sa)
+				continue;
+			//到上游节点的表项跳过
+			if (MR_IN2AD(i) == uni_link[id].src)
+				continue;
+			
+			int rval = 0;
+			//将目的地址，跳数，每跳节点依次填入tmsg.data + len开始的地址，返回填充长度，最后参数验证是否越界
+			rval = ritem_sopget(&rt.item[i], buf_tmp + len_temp, MAX_DATA_LENGTH - len);
+			if (rval == -1)
+				EPT(stderr, "error occurs in ritem_sogget()\n");
+			else
+			{
+				if (rval > 0)
+				{
+					*item_r += 1;
+					len_temp += rval;
+					EPT(stderr,"ADD rt.item[%d] (item_r = %d, rval = %d)in ul_ack\n", i, *item_r, rval);
+				}
+			}
+		}
+		phd->len += 1 + len_temp; 
+	}
+	else
+	{
+		memcpy(buf_tmp + node_cnt + 1, node + node_cnt, item_len);
+		phd->len += item_len; 
+	}
+	
+	len += phd->len;
+
 	
 	uni_link[id].ctime = time(NULL);
 	
 	rp_tmsg_2nl(len + sizeof(MADR), &tmsg);
 	
+	print_uip(len+sizeof(MADR), &tmsg);
+	
+	
 	uni_link[id].flag = 1;
 }
 //单向链路广播报文 组包function
-int rp_uibp_gen(int *id, int flag)
+int rp_uibp_gen(int id, int node_cnt, int item_len, U8* node)
 {
 	int i;
 	int len = 0;
@@ -1114,52 +1321,100 @@ int rp_uibp_gen(int *id, int flag)
 	mmhd_t *phd = (mmhd_t *)tmsg.data;
 	uibp_hd *ubphd = (uibp_hd *)(tmsg.data + MMHD_LEN);
 	
-	U8 *item = &psh->icnt;
-	
 	tmsg.mtype = MMSG_RPM;
+#ifdef _MR_TEST
+    //本节点号的地址
+	tmsg.node = *sa;
+#else
 	tmsg.node = MADR_BRDCAST;
-	
+#endif
+
 	phd->type = RPM_FHR_UIBP;
+
+	ubphd->node = *sa;
+	ubphd->icnt = 1;
+	//U8 *item = &ubphd->icnt;
 
 	len += MMHD_LEN + sizeof(uibp_hd);
 	
-	MADR *buf_tmp;
+	U8 *buf_tmp;
+		
+	//	ASSERT(uni_link[id].flag == 3);
+	
 	buf_tmp = tmsg.data + len;
-		
-	for(i = 0; i < MAX_UNILINK_NUM; i++)
+
+	*buf_tmp = uni_link[id].src;
+	buf_tmp ++;
+	
+	*buf_tmp = uni_link[id].dst;
+	buf_tmp ++;
+	
+	*buf_tmp = (MADR)(uni_link[id].status);
+	buf_tmp ++;
+	
+	*buf_tmp = node_cnt + 1;
+	buf_tmp ++;
+	
+	memcpy(buf_tmp, node, node_cnt);
+	*(buf_tmp + node_cnt) = *sa;
+	
+	phd->len = 4 + node_cnt + 1;
+	
+
+	if(item_len == 0)
 	{
-		if( (flag == 0) && (i > 0))
-			return 1;
+		U8* item_r;
+		int i, len_temp = 0;
 		
-		int id_tmp = *(id[i]);
+		item_r = buf_tmp + node_cnt + 1;
+		*item_r = 0;
 		
-		if(id_tmp == 0)
-			break;
-		
-		ASSERT(uni_link[id_tmp].flag == 1);
-		
-		*buf_tmp = uni_link[id_tmp].src;
-		buf_tmp ++;
-		
-		*buf_tmp = uni_link[id_tmp].dst;
-		buf_tmp ++;
-		
-		*buf_tmp = (MADR)(uni_link[id_tmp].status);
-		buf_tmp ++;
-		
-		*buf_tmp = 1;
-		buf_tmp ++;
-		
-		*buf_tmp = *sa;
-		
-		len += 5; //1 hop, only node[0]
-		phd->len = len;
-		
-		uni_link[id_tmp].ctime = time(NULL);
-		
-		rp_tmsg_2nl(len + sizeof(MADR), &tmsg);
-		
+		buf_tmp = buf_tmp + node_cnt + 2;
+		//把下游节点的路由表也发给上游节点，告诉上游节点通过本节点（下游节点）还可以到哪些节点
+		for(i = 0; i < MAX_NODE_CNT; i++)
+		{
+			//这是类似哈系表的形式，下标和表项的目的地址映射对应
+			ASSERT(MR_IN2AD(i) == rt.item[i].dest);
+			//到本节点的表项跳过
+			if (MR_IN2AD(i) == *sa)
+				continue;
+			//到上游节点的表项跳过
+			if (MR_IN2AD(i) == uni_link[id].src)
+				continue;
+			
+			int rval = 0;
+			//将目的地址，跳数，每跳节点依次填入tmsg.data + len开始的地址，返回填充长度，最后参数验证是否越界
+			rval = ritem_sopget(&rt.item[i], buf_tmp + len_temp, MAX_DATA_LENGTH - len);
+			if (rval == -1)
+				EPT(stderr, "error occurs in ritem_sogget()\n");
+			else
+			{
+				if (rval > 0)
+				{
+					*item_r += 1;
+					len_temp += rval;
+					EPT(stderr,"ADD rt.item[%d] (item_r = %d, rval = %d)in ul_ack\n", i, *item_r, rval);
+				}
+			}
+		}
+		phd->len += 1 + len_temp; 
 	}
+	else
+	{
+		memcpy(buf_tmp + node_cnt + 1, node + node_cnt, item_len);
+		phd->len += item_len; 
+	}
+	
+	len += phd->len;
+
+	uni_link[id].ctime = time(NULL);
+	
+	rp_tmsg_2nl(len + sizeof(MADR), &tmsg);
+	
+	uni_link[id].flag = 1;
+	
+	print_uibp(len+sizeof(MADR), &tmsg);
+	
 }
 
 //单向链路确认报文 组包function
@@ -1172,33 +1427,46 @@ int rp_ul_ack_gen(U8 *data)
 	mmsg_t tmsg;
 	mmhd_t *phd = (mmhd_t *)tmsg.data;
 	
+	if(ul->src != *sa)
+		EPT(stderr,"! ! Wanna send ul_ack while ul->src=%d, *sa=%d\n\n", ul->src, *sa);
+	
 	tmsg.mtype = MMSG_RPM;
-	//下游节点号
-	tmsg.node = *ul->dst;
+#ifdef _MR_TEST
+    //本节点号的地址
+	tmsg.node = *sa;
+#else
+	tmsg.node = ul->dst;
+#endif
 	
 	phd->type = RPM_FHR_ULACK;
 
 	msg_len += MMHD_LEN;
 	
-	MADR *buf_tmp;
+	U8 *buf_tmp;
 	buf_tmp = tmsg.data + msg_len;
-
-	hop = *ul->node_cnt;
-
-	phd->len = 2*(sizeof(MADR)) + 2 + hop;
 	
-	memcpy(buf_tmp, ul, phd->len);
+	ul->node_cnt ++;
 	
+	phd->len = 2*(sizeof(MADR)) + 2 + ul->node_cnt;
+
+	memcpy(buf_tmp, ul, phd->len - 1);
+	
+
+	*(buf_tmp + phd->len - 1) = *sa;
+
 	msg_len += phd->len;
 	
+	
 	rp_tmsg_2nl(msg_len + sizeof(MADR), &tmsg);
+	
+	print_ulack(msg_len + sizeof(MADR), &tmsg);
 }
 
-void inform_uni_link(MADR src, U8 status)
+void inform_uni_link(MADR src, MADR dst, U8 status, int node_cnt, int len, MADR *node)
 {
 	int id = 0;
 	int sn = 0;
-	id = find_useful_uni_link(src, *sa, 
+	id = find_useful_uni_link(src, dst, 
 			status ? status : nt.rl[MR_AD2IN(src)].lstatus, &sn);
 	
 	if(id == -1)
@@ -1210,22 +1478,31 @@ void inform_uni_link(MADR src, U8 status)
 	{
 		uni_link[id].flag = 3;
 		uni_link[id].src = src;
-		uni_link[id].dst = *sa;
+		uni_link[id].dst = dst;
 		uni_link[id].ctime = time(NULL);
 		uni_link[id].status = status?status:nt.rl[MR_AD2IN(src)].lstatus;
+		if(uni_link[id].dst == *sa)
+		{
+			if(sn == 0)
+				EPT(stderr,"!!! assert(sn == 1) error\n");
+			sn = 0;
+			EPT(stderr,"~ ~ ~ find a uni_link %d -> %d\n", src, *sa);
+		}
 	}
 	if(sn == 0)
 	{
-		EPT(stderr, "Doesn't need to sent the uni_link:[%d]->[%d]\n", src, *sa);
+		EPT(stderr, "Doesn't need to send the uni_link:[%d]->[%d]\n", src, *sa);
 		return;
 	}
 	else if(sn == 1)
 	{
-		if(WH_RP_VALD(rt.item[id].pfst.status))
-			rp_uip_gen(id);
+		EPT(stderr,"Send uni_link(uip or uibp):\n");
+		
+		if(WH_RP_VALD(rt.item[MR_AD2IN(src)].pfst.status))
+			rp_uip_gen(id, node_cnt, len?len - 4 - node_cnt:0, node);
 		else
-			rp_uibp_gen(&id, 0);
-	}	
+			rp_uibp_gen(id, node_cnt, len?len - 4 - node_cnt:0, node);
+	}
 }
 
 
@@ -1238,7 +1515,21 @@ int find_useful_uni_link(MADR src, MADR dst, U8 status, int *sn)
 	{
 		if((uni_link[i].flag >= 1)&&(uni_link[i].src == src)&&(uni_link[i].dst == dst))
 		{
+			EPT(stderr,"uni_link is exist on %d\n", i);
 			*sn = need_send2other(i, status);
+			
+			//clear the other src->dst's uni_link
+			int j;
+			for(j = i+1; j < MAX_UNILINK_NUM; j++)
+			{
+				if((uni_link[j].src == src)&&(uni_link[j].dst == dst))
+				{
+					EPT(stderr,"clear the older uni_link of %d\n", j);
+					uni_link[j].flag = 0;
+				}
+					
+			}
+	
 			return i;
 		}	
 	}
@@ -1246,19 +1537,66 @@ int find_useful_uni_link(MADR src, MADR dst, U8 status, int *sn)
 	for(i = 0; i < MAX_UNILINK_NUM; i++)
 	{
 		if(uni_link[i].flag == 0)
+		{
+			*sn = 1;
+			EPT(stderr,"Find an empty space on %d\n", i);
 			return i;
+		}	
+		
 	}
+	//no empty space -> try to clear the old( >60s ) uni_link
+	for(i = 0; i < MAX_UNILINK_NUM; i++)
+	{
+		int ctime;
+		ctime = time(NULL);
+		if((ctime - uni_link[i].ctime) > 60 && (uni_link[i].flag == 1))
+		{
+			clear_uni_link(i);
+			EPT(stderr,"Clear to get an empty space on %d\n", i);
+			*sn = 1;
+			return i;
+		}
+	}
+
 	return -1;
 }
 
 int need_send2other(int id, U8 status)
 {
-	if(uni_link[id].flag == 1)
+	if(uni_link[id].flag == 3)
 	{
+		if(uni_link[id].dst == *sa)
+		{
+			int ctime = time(NULL);
+			if(ctime - uni_link[id].ctime < 5)
+			{
+				EPT(stderr," Doesn't send the uni_link %d to %d\n", uni_link[id].src, uni_link[id].dst);
+				EPT(stderr," Now:%d, ctime:%d\n", ctime, uni_link[id].ctime);
+				uni_link[id].status = status;
+				return 0;	
+			}
+			else
+			{
+				EPT(stderr," Ready to send the uni_link %d to %d\n", uni_link[id].src, uni_link[id].dst);
+				uni_link[id].flag = 2;
+			}
+		}
+		else 
+			uni_link[id].flag = 1;
+		
+		uni_link[id].status = status;
+		uni_link[id].ctime = time(NULL);
+		return 1;
+	}
+		
+	else if(uni_link[id].flag == 1)
+	{
+		int ctime;
 		ctime = time(NULL);
 		if((ctime - uni_link[id].ctime) > 6)
 		{
 			uni_link[id].flag = 3;
+			uni_link[id].status = status;
 			uni_link[id].ctime = ctime;
 			return 1;
 		}
@@ -1269,4 +1607,32 @@ int need_send2other(int id, U8 status)
 		return 0;
 	else
 		EPT(stderr,"!!! uni_link[%d].flag = %d\n",id, uni_link[id].flag);
+}
+
+void confirm_ul(U8 src, U8 status)
+{
+	int i;
+
+	//check if the uni link is existed already
+	for(i = 0; i < MAX_UNILINK_NUM; i++)
+	{
+		if((uni_link[i].flag >= 1)&&(uni_link[i].src == src)&&(uni_link[i].dst == *sa))
+		{
+			if(status >= uni_link[i].status)
+			{
+				EPT(stderr,"   Confirm the ul_ack(%d->%d) on uni_link[%d]\n", uni_link[i].src, uni_link[i].dst, i);
+				uni_link[i].status = status;
+				uni_link[i].flag = 1;
+			}
+		}	
+	}
+}
+
+void clear_uni_link(int id)
+{
+	uni_link[id].flag = 0;
+	uni_link[id].src = 0;
+	uni_link[id].dst = 0;
+	uni_link[id].status = 0;
+	uni_link[id].timer_ttl = 0;
 }

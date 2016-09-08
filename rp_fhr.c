@@ -34,7 +34,8 @@ void rp_fhrsop_proc(MADR node, int len, U8 *data)
 {
 	int i, pos = 0;
 	int tmp_pos = 0;
-	U8 items, hop, status;
+
+	U8 item_l, item_r, hop, status;
 	MADR dest;
 //	EPT(stdout, "node[%d]: reveive sop message, nb=%d, len=%d\n", *sa, node, len);
 #if 0
@@ -68,37 +69,48 @@ void rp_fhrsop_proc(MADR node, int len, U8 *data)
 	tmp_pos = pos;
 	for(i = 0; i < item_l; i++)
 	{
-		dest = *(MADR)(data + tmp_pos);
+		dest = *(MADR* )(data + tmp_pos);
 		tmp_pos += sizeof(MADR);
+		
+		EPT(stderr,"  item_l[%d] = %d\n", i, dest);
+		
 		if(dest != *sa)
 		{
 			tmp_pos ++;
 			continue;
 		}
-		else
+		else 
 		{
 			status = *(data + tmp_pos++);
+			
+			EPT(stderr,"   status = %d\n", status);
+			
 			if(status >= LQ_UNSTABLE)
 			{
 				nt.fl[MR_AD2IN(src)].lstatus = status;
 
 	  			//赋值一条到邻接点src的路由（src为下一跳）并与原来比较，若更优则更新之
+				
+				EPT(stderr,"*** sop driver update the rpath to %d: ***\n", dest);
+				
 				ritem_nup(src, NULL, 0);
 				//检查和更新一条路由链路，第二个参数up=0说明是数据包更新而不是定时器更新
 				//本函数内部嵌入跟新转发表部分*****
 				ritem_fsm(&rt.item[MR_AD2IN(src)], 0);
 			}
 			else
-				EPT(stderr,"ERROR: node from %d to %d, status:%d\n",dest, *sa, status);
+				EPT(stderr,"ERROR: link [%d]->[%d], status:%d\n",dest, *sa, status);
 			break;
 		}
 	}
 
-	if(i == item_l)
+	if( (i != 0) && (i == item_l) )
 	{
-		EPT(stderr,"~ ~ ~ find a uni_link %d -> %d\n", src, *sa);
-		inform_uni_link(src, 0);
+		
+		inform_uni_link(src, *sa, 0, 0, 0, NULL);
 		//因为本节点sa到不了src，所以src的路由也就没有参考价值了(so直接return)
+		
+		EPT(stderr,"Sop's content non-use\n");
 		return;
 	}
 
@@ -138,10 +150,14 @@ void rp_fhrsop_proc(MADR node, int len, U8 *data)
 	}
 
 	if (pos != len) {
-		EPT(stderr, "node[%d]: the sop message len is wrong, items=%d\n", *sa, items);
+		EPT(stderr, "node[%d]: the sop message len(%d) is wrong, item_l=%d item_r=%d\n", *sa, len, item_l, item_r);
 	}
-    //对比路由表，更新转发表，如果转发表有变化，则通知底层
-    update_fwt();
+    
+    
+#ifndef _MR_TEST
+	//对比路由表，更新转发表，如果转发表有变化，则通知底层
+	update_fwt();
+#endif
 }
 
 /*收到uip报文处理函数*/
@@ -149,39 +165,166 @@ void rp_fhruip_proc(MADR node, int len, U8 *data)
 {
 	int pos = 0;
 	MADR src = *(MADR *)data;
-	pos += sizeof(MADR);
 	
-	MADR dst = *(MADR *)data;
-	pos += sizeof(MADR);
+	pos += sizeof(MADR);	
+	
+	MADR dst = *(MADR *)(data+pos);
+	pos += sizeof(MADR);	
 	
 	U8 status = *(data + pos);
+	pos += 1;	
+
+	if(src == *sa)
+	{
+		
+		/*！！！这里应该也记录下该单向链路，然后避免重复发送*/
+
+		//根据收到的单向链路的状态更新上游节点的出链路状态
+		update_fl(dst, status);
+		//赋值一条到下游节点(dst)的路由（1跳），并与原到下游节点的路由比较，更优则更新之
+		
+		EPT(stderr,"*** uip driver update the rpath to %d: ***\n", dst);
+		
+		ritem_nup(dst, NULL, 0);
+
+		/*******根据下游节点的路由路径，更新上游节点的路由路径***********/
+		int i, item_r;
+		U8 dest, hop;
+		
+		U8 node_cnt = *(data + pos);	
+		pos += node_cnt + 1;	
+		
+		item_r = (int)*(data + pos++);	
+
+		for(i = 0; i < item_r; i++)
+		{
+		    //该条路由路径目的节点
+			dest = *(data + pos++);
+			
+	        //到目的节点dest跳数
+			hop = *(data + pos++);
+	        //若达到最大跳数才检查路由环路？
+			if (RP_INHOPS == hop)
+			{
+			    //检查路由环路，若存在则清空路由
+			    //本函数内嵌入跟更新转发表部分*****
+				ritem_del(&rt.item[MR_AD2IN(dest)], dst);
+			}
+			else
+			{
+				if ((hop > MAX_HOPS)||(pos + hop*sizeof(MADR) > len))
+				{
+					EPT(stderr, "! Wrong uip message dest=%d,hop=%d,len=%d\n", dest, hop, len);
+					break;
+				}
+				//将dst(下游节点)作为下一跳更新路由并比较，若更优则替换
+				ritem_up(&rt.item[MR_AD2IN(dest)], dst, hop, (MADR*)(data+pos));
+				ritem_fsm(&rt.item[MR_AD2IN(dest)], 0);
+				pos += hop*sizeof(MADR);
+			}
+		}
+		
+		/********向下游节点发送确认报文**********/
+		rp_ul_ack_gen(data);
+	}
+	
+	else
+	{
+		U8 node_cnt = data[pos];
+		pos ++;
+
+		U8* path;
+		path = data + pos;
+		inform_uni_link(src, dst, status, node_cnt, len, path);
+	}
+}
+
+/*收到uibp报文处理函数*/
+void rp_fhruibp_proc(MADR node, int len, U8 *data)
+{
+	int pos = 0;
+	//忽略第一个data[0]:node
+	pos += sizeof(MADR);
+	U8 icnt = data[pos];
+	
+	//先默认icnt为1，即一个uibp包只包含一个单向链路
+	if(icnt != 1)
+		EPT(stderr,"! ! icnt = %d\n\n", icnt);
+
+	pos ++;
+	U8 src = data[pos];
+
+	pos += sizeof(MADR);
+	U8 dst = data[pos];
+
+	pos += sizeof(MADR);
+	U8 status = data[pos];
+
+	pos++;
+	U8 node_cnt = data[pos];
+
+	pos++;
+	U8 *path;
+	path = data + pos;
 
 	if(src == *sa)
 	{
 		//根据收到的单向链路的状态更新上游节点的出链路状态
-		updata_fl(dst, status);
+		update_fl(dst, status);
 		//赋值一条到下游节点的路由（1跳），并与原到下游节点的路由比较，更优则更新之
+		
+		EPT(stderr,"*** uibp driver update the rpath to %d: ***\n", dst);
+		
 		ritem_nup(dst, NULL, 0);
 		//向下游节点发送确认报文
-		rp_ul_ack_gen(data + pos);
+		rp_ul_ack_gen(data);
 	}
 	else
 	{
-		inform_uni_link(src, status);
+		inform_uni_link(src, dst, status, node_cnt, len, path);
 	}
 }
 
-void rp_fhruibp_proc(MADR node, int len, U8 *data)
-{
-	
-}
-
+/*收到ul_ack报文处理函数*/
 void rp_fhrulack_proc(MADR node, int len, U8 *data)
-{
-	
+{	
+
+	U8 src = *data;
+	U8 dst = *(data + 1);
+	U8 status = *(data + 2);
+
+	if(dst != *sa)
+	{
+		EPT(stderr,"! Recv ul_ack while dst(%d) != sa(%d)\n", dst, *sa);
+		return;
+	}
+	if(data[4] != *sa)
+	{
+		EPT(stderr,"! Recv ul_ack while node[0](%d) != sa(%d)\n", data[3], *sa);
+		return;
+	}
+
+	confirm_ul(src, status);
+
+
+	rpath_t *rp = &rt.item[MR_AD2IN(dst)].pfst;
+	if(! WH_RP_VALD(rp->status))
+	{
+		U8 node_cnt = *(data + 3);
+		rp->hop = node_cnt - 1;
+		rp->status = status;
+		memcpy(rp->node, data + 5, (node_cnt - 1)*sizeof(MADR));
+
+		EPT(stderr, "** ul_ack make: **\n");
+		rpath_show(src, rp);
+	}
+
+
+#ifndef _MR_TEST
+	//对比路由表，更新转发表，如果转发表有变化，则通知底层
+	update_fwt();
+#endif
 }
-
-
 
 
 void rp_fhrrii_proc(MADR node, int len, U8 *data)

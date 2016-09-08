@@ -86,7 +86,7 @@ int rp_start_timer()
 	rp_tsch_init();//确定三个映射定时器的调用周期（基于系统定时器）
 
 	signal(SIGALRM, rp_timer_sche);//rp_timer_sche  wait for SIGALRM
-	rval = setitimer(ITIMER_REAL, &new_value, NULL);//计时到达将发送SIGVTALRM信号给进程
+	rval = setitimer(ITIMER_REAL, &new_value, NULL);//计时到达将发送SIGALRM信号给进程
 	if (-1 == rval)	{
 		/* failure */
 		EPT(stderr, "error occurs in setting timer %d[%s]\n", errno, strerror(errno));
@@ -128,6 +128,26 @@ void rp_timer_sche(int signo)
 		}
 	}
 }
+
+void show_sop(int len, mmsg_t* tmsg)
+{
+	char *data = tmsg->data;
+	int i;
+
+	len -= MMHD_LEN;
+	data = data + MMHD_LEN;
+
+	EPT(stderr,"          ** SOP **\n");
+	for(i = 0; i < len; i++)
+	{
+		EPT(stderr, "%d", *(data + i));
+	}
+	EPT(stderr,"          ** END **\n");
+
+
+
+}
+
 //每收到1次定时器信号调用一次，即周期为1s
 void rp_sop_gen(void *data)
 {
@@ -170,7 +190,7 @@ void rp_sop_gen(void *data)
 	{
 		if (MR_IN2AD(i) == *sa)
 			continue;
-		if(nt.rl[i].lstatus >= LQ_UNSTABLE)
+		if (nt.rl[i].lstatus >= LQ_UNSTABLE)
 		{
 			*buf_tmp = MR_IN2AD(i);
 			buf_tmp ++;
@@ -190,7 +210,7 @@ void rp_sop_gen(void *data)
 		if (MR_IN2AD(i) == *sa)
 			continue;
 		rval = 0;
-		//将目的地址，跳数，每跳节点一次填入tmsg.data + len开始的地址，返回填充长度，最后参数验证是否越界
+		//将目的地址，跳数，每跳节点依次填入tmsg.data + len开始的地址，返回填充长度，最后参数验证是否越界
 		rval = ritem_sopget(&rt.item[i], tmsg.data + len, MAX_DATA_LENGTH - len);
 		if (rval == -1)
 			EPT(stderr, "error occurs in ritem_sogget()\n");
@@ -208,6 +228,9 @@ void rp_sop_gen(void *data)
 	phd->len = len - MMHD_LEN;
 	//通过消息队列发出tmsg，第一个参数是发送长度
 	rp_tmsg_2nl(len + sizeof(MADR), &tmsg);//msg_snd
+	
+	show_sop(len, &tmsg);
+	
 }
 //每收到5次定时器信号调用一次，即周期为5s
 void rp_rt_check(void *data)
@@ -226,9 +249,13 @@ void rp_rt_check(void *data)
 
 		ritem_fsm(&rt.item[i], 1);
 	}
+#ifndef _MR_TEST
 	//检查和更新转发表
 	update_fwt();
+#endif
+
 }
+
 //每收到5次定时器信号调用一次，即周期为5s
 void rp_lk_check(void *data)
 {
@@ -256,7 +283,9 @@ void rp_lk_check(void *data)
 			continue;
 		}
         //为何此处断言？
+		/*deleted by wanghao on 7.11
 		ASSERT(LQ_ACTIVE != lk->lstatus);
+		*/
 		nn = MR_IN2AD(i);
 		EPT(stderr, "node[%d]: find link to %d changed, status=%d\n", *sa, nn, lk->lstatus);
 
